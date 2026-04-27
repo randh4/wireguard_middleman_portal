@@ -1,4 +1,8 @@
 /* assets/style.css */
+
+/* ==========================================
+   VARIABEL TEMA (Terang / Gelap)
+   ========================================== */
 :root {
     --bg-color: #f8f9fa;
     --card-bg: #ffffff;
@@ -19,6 +23,9 @@
     --hero-gradient: linear-gradient(135deg, #1e1e1e 0%, #121212 100%);
 }
 
+/* ==========================================
+   LAYOUT UMUM
+   ========================================== */
 body {
     font-family: 'Inter', sans-serif;
     background-color: var(--bg-color);
@@ -34,6 +41,9 @@ body {
     border-radius: 0 0 20px 20px;
 }
 
+/* ==========================================
+   KOMPONEN: Card
+   ========================================== */
 .card {
     background-color: var(--card-bg);
     border: 1px solid var(--border-color);
@@ -47,6 +57,9 @@ body {
     background-color: transparent;
 }
 
+/* ==========================================
+   FORM & INPUT
+   ========================================== */
 .form-control, .form-select {
     background-color: var(--card-bg);
     border-color: var(--border-color);
@@ -62,11 +75,17 @@ body {
     background-color: var(--bg-color);
 }
 
+/* ==========================================
+   TOMBOL & AKSI
+   ========================================== */
 .btn-copy {
     padding: 0.25rem 0.5rem;
     font-size: 0.875rem;
 }
 
+/* ==========================================
+   TABEL
+   ========================================== */
 .table {
     color: var(--text-color);
     border-color: var(--border-color);
@@ -81,6 +100,9 @@ body {
     background-color: rgba(255,255,255,0.02);
 }
 
+/* ==========================================
+   UTILITAS
+   ========================================== */
 .text-muted {
     color: var(--text-muted) !important;
 }
@@ -116,6 +138,9 @@ body {
     color: var(--text-color);
 }
 
+/* ==========================================
+   FOOTER
+   ========================================== */
 footer {
     padding: 20px 0;
     border-top: 1px solid var(--border-color);

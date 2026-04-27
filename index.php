@@ -1,34 +1,49 @@
 <?php
-// index.php - User Page
+/**
+ * index.php — Halaman Publik User
+ * 
+ * Halaman ini bisa diakses tanpa login. Fungsinya:
+ * 1. Menampilkan informasi server MikroTik (Public Key, Endpoint, Allowed IP)
+ *    yang bisa di-copy ke clipboard
+ * 2. Menyediakan form registrasi bagi user yang ingin mendaftarkan
+ *    perangkatnya ke jaringan WireGuard
+ * 3. Menampilkan daftar antrean pendaftar (tanpa menunjukkan Public Key mereka)
+ */
 require_once 'db_config.php';
 
-$flash = get_flash();
+// Mengambil pesan kilat jika ada (misal setelah berhasil daftar)
+$pesan_kilat = get_flash();
 
-// Handle Registration
+/**
+ * Alur penanganan registrasi:
+ * Validasi input -> Insert ke DB -> Redirect ke halaman yang sama (PRG pattern)
+ */
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['register'])) {
     verify_csrf();
     
-    $name = trim($_POST['name'] ?? '');
-    $ip_tunnel = trim($_POST['ip_tunnel'] ?? '');
-    $public_key = trim($_POST['public_key'] ?? '');
+    $nama = trim($_POST['name'] ?? '');
+    $ip_terowongan = trim($_POST['ip_tunnel'] ?? '');
+    $kunci_publik = trim($_POST['public_key'] ?? '');
 
-    $errors = [];
+    $daftar_error = [];
 
-    // Validation
-    if (empty($name) || strlen($name) < 2) {
-        $errors[] = "Nama minimal 2 karakter.";
+    // Validasi input di sisi server
+    if (empty($nama) || strlen($nama) < 2) {
+        $daftar_error[] = "Nama minimal 2 karakter.";
     }
-    if (!preg_match('/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(\/\d{1,2})?$/', $ip_tunnel)) {
-        $errors[] = "Format IP Tunnel tidak valid (contoh: 10.0.0.2/32).";
+    // Regex untuk memastikan format IP/CIDR yang valid
+    if (!preg_match('/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(\/\d{1,2})?$/', $ip_terowongan)) {
+        $daftar_error[] = "Format IP Tunnel tidak valid (contoh: 10.0.0.2/32).";
     }
-    if (strlen($public_key) < 40) {
-        $errors[] = "Public Key terlalu pendek.";
+    if (strlen($kunci_publik) < 40) {
+        $daftar_error[] = "Public Key terlalu pendek.";
     }
 
-    if (empty($errors)) {
+    if (empty($daftar_error)) {
         try {
-            $stmt = $pdo->prepare("INSERT INTO users (name, ip_tunnel, public_key) VALUES (?, ?, ?)");
-            $stmt->execute([$name, $ip_tunnel, $public_key]);
+            $kueri = $pdo->prepare("INSERT INTO users (name, ip_tunnel, public_key) VALUES (?, ?, ?)");
+            $kueri->execute([$nama, $ip_terowongan, $kunci_publik]);
+            
             set_flash("Pendaftaran berhasil! Silakan hubungi admin untuk aktivasi.", "success");
             header("Location: index.php");
             exit;
@@ -37,19 +52,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['register'])) {
             set_flash("Gagal mendaftar. Terjadi kesalahan pada sistem.", "danger");
         }
     } else {
-        set_flash(implode("<br>", $errors), "warning");
+        set_flash(implode("<br>", $daftar_error), "warning");
     }
 }
 
-// Fetch Settings
-$settings = [];
-$stmt = $pdo->query("SELECT * FROM settings");
-while ($row = $stmt->fetch()) {
-    $settings[$row['key']] = $row['value'];
+/**
+ * Mengambil informasi server yang akan ditampilkan di area Pinned Message.
+ * Data ini diatur oleh admin melalui dashboard.
+ */
+$pengaturan = [];
+$kueri = $pdo->query("SELECT * FROM settings");
+while ($baris = $kueri->fetch()) {
+    $pengaturan[$baris['key']] = $baris['value'];
 }
 
-// Fetch Registered Users
-$users = $pdo->query("SELECT name, status, created_at FROM users ORDER BY created_at DESC LIMIT 20")->fetchAll();
+/**
+ * Mengambil daftar pendaftar terbaru untuk ditampilkan di antrean publik.
+ * Hanya menampilkan nama, status, dan waktu untuk menjaga privasi data sensitif.
+ */
+$daftar_pengguna = $pdo->query("SELECT name, status, created_at FROM users ORDER BY created_at DESC LIMIT 20")->fetchAll();
 ?>
 <!DOCTYPE html>
 <html lang="id" data-theme="light">
@@ -74,15 +95,15 @@ $users = $pdo->query("SELECT name, status, created_at FROM users ORDER BY create
 </div>
 
 <div class="container pb-5">
-    <?php if ($flash): ?>
-        <div class="alert alert-<?= h($flash['type']) ?> alert-dismissible fade show" role="alert">
-            <?= $flash['message'] ?>
+    <?php if ($pesan_kilat): ?>
+        <div class="alert alert-<?= h($pesan_kilat['type']) ?> alert-dismissible fade show" role="alert">
+            <?= $pesan_kilat['message'] ?>
             <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
         </div>
     <?php endif; ?>
 
     <div class="row g-4">
-        <!-- Pinned Message Area -->
+        <!-- Area Informasi Server (Pinned Message) -->
         <div class="col-md-12">
             <div class="card">
                 <div class="card-header border-0 pt-4 px-4">
@@ -93,21 +114,21 @@ $users = $pdo->query("SELECT name, status, created_at FROM users ORDER BY create
                         <div class="col">
                             <label class="form-label text-muted small fw-bold">PUBLIC KEY MIKROTIK</label>
                             <div class="input-group">
-                                <input type="text" class="form-control" id="pubkey" value="<?= h($settings['public_key'] ?? '') ?>" readonly>
+                                <input type="text" class="form-control" id="pubkey" value="<?= h($pengaturan['public_key'] ?? '') ?>" readonly>
                                 <button class="btn btn-outline-primary btn-copy" onclick="copyToClipboard('pubkey', this)">Copy</button>
                             </div>
                         </div>
                         <div class="col">
                             <label class="form-label text-muted small fw-bold">ENDPOINT (IP:PORT)</label>
                             <div class="input-group">
-                                <input type="text" class="form-control" id="endpoint" value="<?= h($settings['endpoint'] ?? '') ?>" readonly>
+                                <input type="text" class="form-control" id="endpoint" value="<?= h($pengaturan['endpoint'] ?? '') ?>" readonly>
                                 <button class="btn btn-outline-primary btn-copy" onclick="copyToClipboard('endpoint', this)">Copy</button>
                             </div>
                         </div>
                         <div class="col">
                             <label class="form-label text-muted small fw-bold">ALLOWED IP</label>
                             <div class="input-group">
-                                <input type="text" class="form-control" id="allowedip" value="<?= h($settings['allowed_ip'] ?? '') ?>" readonly>
+                                <input type="text" class="form-control" id="allowedip" value="<?= h($pengaturan['allowed_ip'] ?? '') ?>" readonly>
                                 <button class="btn btn-outline-primary btn-copy" onclick="copyToClipboard('allowedip', this)">Copy</button>
                             </div>
                         </div>
@@ -116,7 +137,7 @@ $users = $pdo->query("SELECT name, status, created_at FROM users ORDER BY create
             </div>
         </div>
 
-        <!-- Form Registrasi -->
+        <!-- Form Registrasi User Baru -->
         <div class="col-md-5">
             <div class="card h-100">
                 <div class="card-header border-0 pt-4 px-4">
@@ -148,7 +169,7 @@ $users = $pdo->query("SELECT name, status, created_at FROM users ORDER BY create
             </div>
         </div>
 
-        <!-- Daftar Terdaftar -->
+        <!-- Tabel Antrean Pendaftar -->
         <div class="col-md-7">
             <div class="card h-100">
                 <div class="card-header border-0 pt-4 px-4 d-flex justify-content-between align-items-center">
@@ -167,21 +188,21 @@ $users = $pdo->query("SELECT name, status, created_at FROM users ORDER BY create
                                 </tr>
                             </thead>
                             <tbody>
-                                <?php if (empty($users)): ?>
+                                <?php if (empty($daftar_pengguna)): ?>
                                     <tr>
                                         <td colspan="4" class="text-center text-muted py-4">Belum ada pendaftar.</td>
                                     </tr>
                                 <?php else: ?>
-                                    <?php $i = 1; foreach ($users as $user): ?>
+                                    <?php $nomor = 1; foreach ($daftar_pengguna as $pengguna): ?>
                                         <tr>
-                                            <td><?= $i++ ?></td>
-                                            <td class="fw-semibold"><?= h($user['name']) ?></td>
+                                            <td><?= $nomor++ ?></td>
+                                            <td class="fw-semibold"><?= h($pengguna['name']) ?></td>
                                             <td>
-                                                <span class="badge badge-<?= h($user['status']) ?>">
-                                                    <?= ucfirst(h($user['status'])) ?>
+                                                <span class="badge badge-<?= h($pengguna['status']) ?>">
+                                                    <?= ucfirst(h($pengguna['status'])) ?>
                                                 </span>
                                             </td>
-                                            <td class="small text-muted"><?= indonesian_date($user['created_at']) ?></td>
+                                            <td class="small text-muted"><?= indonesian_date($pengguna['created_at']) ?></td>
                                         </tr>
                                     <?php endforeach; ?>
                                 <?php endif; ?>
@@ -200,7 +221,7 @@ $users = $pdo->query("SELECT name, status, created_at FROM users ORDER BY create
     </div>
 </footer>
 
-<!-- Toast Notification -->
+<!-- Wadah untuk Notifikasi Toast -->
 <div class="toast-container position-fixed bottom-0 end-0 p-3">
     <div id="liveToast" class="toast" role="alert" aria-live="assertive" aria-atomic="true">
         <div class="toast-header">
@@ -213,7 +234,10 @@ $users = $pdo->query("SELECT name, status, created_at FROM users ORDER BY create
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script>
-// Theme Management
+/**
+ * Pengaturan Tema (Terang/Gelap).
+ * Menyimpan preferensi user ke localStorage agar awet saat refresh.
+ */
 function toggleTheme() {
     const html = document.documentElement;
     const currentTheme = html.getAttribute('data-theme');
@@ -227,7 +251,11 @@ document.addEventListener('DOMContentLoaded', () => {
     document.documentElement.setAttribute('data-theme', savedTheme);
 });
 
-// Clipboard with Fallback
+/**
+ * Fungsi Copy to Clipboard dengan Mekanisme Fallback.
+ * navigator.clipboard membutuhkan koneksi aman (HTTPS). 
+ * Di lingkungan internal HTTP, fungsi ini akan beralih ke metode textarea manual.
+ */
 function copyToClipboard(elementId, btn) {
     const copyText = document.getElementById(elementId);
     const textToCopy = copyText.value;
@@ -253,6 +281,9 @@ function copyToClipboard(elementId, btn) {
     }
 }
 
+/**
+ * Metode alternatif menyalin teks jika API clipboard tidak tersedia.
+ */
 function fallbackCopy(text, callback) {
     const textArea = document.createElement("textarea");
     textArea.value = text;
@@ -272,7 +303,10 @@ function fallbackCopy(text, callback) {
     document.body.removeChild(textArea);
 }
 
-// Disable Double Submit
+/**
+ * Mencegah pengiriman formulir ganda (double submit).
+ * Menonaktifkan tombol setelah klik pertama dan memberikan indikasi loading.
+ */
 document.getElementById('regForm').addEventListener('submit', function(e) {
     const btn = document.getElementById('submitBtn');
     btn.disabled = true;
@@ -280,7 +314,9 @@ document.getElementById('regForm').addEventListener('submit', function(e) {
     btn.querySelector('.spinner-border').classList.remove('d-none');
 });
 
-// Auto-dismiss Alerts
+/**
+ * Menghilangkan pesan sukses/info secara otomatis setelah 5 detik.
+ */
 document.querySelectorAll('.alert-success, .alert-info').forEach(alert => {
     setTimeout(() => {
         const bsAlert = new bootstrap.Alert(alert);

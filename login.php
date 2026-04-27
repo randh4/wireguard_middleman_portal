@@ -1,43 +1,60 @@
 <?php
-// login.php - Admin Login
+/**
+ * login.php — Halaman Login Admin
+ * 
+ * Hanya admin yang bisa mengakses dashboard. Halaman ini:
+ * 1. Menampilkan form login (username + password)
+ * 2. Memverifikasi kredensial terhadap tabel admin di database
+ * 3. Menggunakan password_verify() untuk mencocokkan hash
+ * 4. Meregenerasi session ID setelah login berhasil (anti session fixation)
+ */
 require_once 'db_config.php';
 
 start_secure_session();
 
-// If already logged in, redirect to admin
+/**
+ * Jika admin sudah dalam kondisi login, langsung arahkan ke dashboard
+ * untuk menghindari login ulang yang tidak perlu.
+ */
 if (isset($_SESSION['admin']) && $_SESSION['admin'] === true) {
     header("Location: admin.php");
     exit;
 }
 
-$error = '';
+$pesan_error = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     verify_csrf();
     
-    $username = trim($_POST['username'] ?? '');
-    $password = $_POST['password'] ?? '';
+    $nama_pengguna = trim($_POST['username'] ?? '');
+    $kata_sandi = $_POST['password'] ?? '';
 
-    if (!empty($username) && !empty($password)) {
+    if (!empty($nama_pengguna) && !empty($kata_sandi)) {
         try {
-            $stmt = $pdo->prepare("SELECT * FROM admin WHERE username = ?");
-            $stmt->execute([$username]);
-            $admin = $stmt->fetch();
+            // Mencari data admin berdasarkan username
+            $kueri = $pdo->prepare("SELECT * FROM admin WHERE username = ?");
+            $kueri->execute([$nama_pengguna]);
+            $data_admin = $kueri->fetch();
 
-            if ($admin && password_verify($password, $admin['password'])) {
+            /**
+             * Verifikasi password menggunakan hashing standar PHP.
+             * Tidak menggunakan perbandingan string biasa demi keamanan data.
+             */
+            if ($data_admin && password_verify($kata_sandi, $data_admin['password'])) {
+                // Anti Session Fixation: regenerasi ID session setelah login berhasil
                 session_regenerate_id(true);
                 $_SESSION['admin'] = true;
                 header("Location: admin.php");
                 exit;
             } else {
-                $error = "Username atau password salah.";
+                $pesan_error = "Username atau password salah.";
             }
         } catch (PDOException $e) {
             error_log($e->getMessage());
-            $error = "Terjadi kesalahan sistem.";
+            $pesan_error = "Terjadi kesalahan sistem.";
         }
     } else {
-        $error = "Username dan password wajib diisi.";
+        $pesan_error = "Username dan password wajib diisi.";
     }
 }
 ?>
@@ -64,8 +81,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <p class="text-muted small">WireGuard Middleman Portal</p>
         </div>
 
-        <?php if ($error): ?>
-            <div class="alert alert-danger small"><?= h($error) ?></div>
+        <?php if ($pesan_error): ?>
+            <div class="alert alert-danger small"><?= h($pesan_error) ?></div>
         <?php endif; ?>
 
         <form method="POST">
@@ -90,7 +107,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script>
-    // Theme auto-apply
+    /**
+     * Menerapkan tema yang tersimpan di browser user.
+     */
     const savedTheme = localStorage.getItem('theme') || 'light';
     document.documentElement.setAttribute('data-theme', savedTheme);
 </script>
