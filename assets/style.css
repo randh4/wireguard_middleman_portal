@@ -1,0 +1,125 @@
+/* assets/style.css */
+:root {
+    --bg-color: #f8f9fa;
+    --card-bg: #ffffff;
+    --text-color: #212529;
+    --text-muted: #6c757d;
+    --border-color: #dee2e6;
+    --primary-color: #0d6efd;
+    --hero-gradient: linear-gradient(135deg, #0d6efd 0%, #0a58ca 100%);
+}
+
+[data-theme="dark"] {
+    --bg-color: #121212;
+    --card-bg: #1e1e1e;
+    --text-color: #e0e0e0;
+    --text-muted: #a0a0a0;
+    --border-color: #333333;
+    --primary-color: #375a7f;
+    --hero-gradient: linear-gradient(135deg, #1e1e1e 0%, #121212 100%);
+}
+
+body {
+    font-family: 'Inter', sans-serif;
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    transition: background-color 0.3s, color 0.3s;
+}
+
+.hero-section {
+    background: var(--hero-gradient);
+    color: white;
+    padding: 40px 0;
+    margin-bottom: 30px;
+    border-radius: 0 0 20px 20px;
+}
+
+.card {
+    background-color: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+    color: var(--text-color);
+}
+
+.card-header {
+    border-bottom: 1px solid var(--border-color);
+    background-color: transparent;
+}
+
+.form-control, .form-select {
+    background-color: var(--card-bg);
+    border-color: var(--border-color);
+    color: var(--text-color);
+}
+
+.form-control:focus {
+    background-color: var(--card-bg);
+    color: var(--text-color);
+}
+
+.form-control[readonly] {
+    background-color: var(--bg-color);
+}
+
+.btn-copy {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.875rem;
+}
+
+.table {
+    color: var(--text-color);
+    border-color: var(--border-color);
+    vertical-align: middle;
+}
+
+.table-hover tbody tr:hover {
+    background-color: rgba(0,0,0,0.02);
+}
+
+[data-theme="dark"] .table-hover tbody tr:hover {
+    background-color: rgba(255,255,255,0.02);
+}
+
+.text-muted {
+    color: var(--text-muted) !important;
+}
+
+/* Badge Fixes */
+.badge {
+    padding: 0.5em 0.8em;
+    font-weight: 600;
+}
+
+.badge-pending {
+    background-color: #ffc107 !important;
+    color: #000 !important;
+}
+
+.badge-active {
+    background-color: #198754 !important;
+    color: #fff !important;
+}
+
+/* Toast Positioning */
+.toast-container {
+    z-index: 1055;
+}
+
+/* Theme Toggle Button */
+.theme-toggle {
+    cursor: pointer;
+    padding: 5px 10px;
+    border-radius: 20px;
+    border: 1px solid var(--border-color);
+    background: var(--card-bg);
+    color: var(--text-color);
+}
+
+footer {
+    padding: 20px 0;
+    border-top: 1px solid var(--border-color);
+    margin-top: 50px;
+    color: var(--text-muted);
+    font-size: 0.9rem;
+}

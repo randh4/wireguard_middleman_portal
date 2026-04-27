@@ -2,7 +2,7 @@
 // login.php - Admin Login
 require_once 'db_config.php';
 
-session_start();
+start_secure_session();
 
 // If already logged in, redirect to admin
 if (isset($_SESSION['admin']) && $_SESSION['admin'] === true) {
@@ -13,31 +13,46 @@ if (isset($_SESSION['admin']) && $_SESSION['admin'] === true) {
 $error = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $username = $_POST['username'] ?? '';
+    verify_csrf();
+    
+    $username = trim($_POST['username'] ?? '');
     $password = $_POST['password'] ?? '';
 
-    // Simple authentication based on hardcoded constants
-    if ($username === ADMIN_USER && $password === ADMIN_PASS) {
-        session_regenerate_id(true);
-        $_SESSION['admin'] = true;
-        header("Location: admin.php");
-        exit;
+    if (!empty($username) && !empty($password)) {
+        try {
+            $stmt = $pdo->prepare("SELECT * FROM admin WHERE username = ?");
+            $stmt->execute([$username]);
+            $admin = $stmt->fetch();
+
+            if ($admin && password_verify($password, $admin['password'])) {
+                session_regenerate_id(true);
+                $_SESSION['admin'] = true;
+                header("Location: admin.php");
+                exit;
+            } else {
+                $error = "Username atau password salah.";
+            }
+        } catch (PDOException $e) {
+            error_log($e->getMessage());
+            $error = "Terjadi kesalahan sistem.";
+        }
     } else {
-        $error = "Username atau password salah.";
+        $error = "Username dan password wajib diisi.";
     }
 }
 ?>
 <!DOCTYPE html>
-<html lang="en">
+<html lang="id" data-theme="light">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Login Admin - WireGuard Portal</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="assets/style.css">
     <style>
-        body { font-family: 'Inter', sans-serif; background-color: #f0f2f5; display: flex; align-items: center; min-height: 100vh; }
-        .login-card { max-width: 400px; width: 100%; margin: auto; border: none; border-radius: 16px; box-shadow: 0 10px 25px rgba(0,0,0,0.05); }
+        body { display: flex; align-items: center; min-height: 100vh; }
+        .login-card { max-width: 400px; width: 100%; margin: auto; }
     </style>
 </head>
 <body>
@@ -54,9 +69,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <?php endif; ?>
 
         <form method="POST">
+            <?= csrf_field() ?>
             <div class="mb-3">
                 <label class="form-label small fw-bold">Username</label>
-                <input type="text" name="username" class="form-control" placeholder="admin" required>
+                <input type="text" name="username" class="form-control" placeholder="admin" required autofocus>
             </div>
             <div class="mb-3">
                 <label class="form-label small fw-bold">Password</label>
@@ -72,5 +88,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     </div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+    // Theme auto-apply
+    const savedTheme = localStorage.getItem('theme') || 'light';
+    document.documentElement.setAttribute('data-theme', savedTheme);
+</script>
 </body>
 </html>
