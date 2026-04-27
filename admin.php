@@ -1,27 +1,45 @@
 <?php
-// admin.php - Admin Dashboard
+/**
+ * admin.php — Dashboard Admin (Dilindungi Session)
+ * 
+ * Halaman ini hanya bisa diakses oleh admin yang sudah login. Fungsinya:
+ * 1. Memperbarui informasi server MikroTik (yang tampil di halaman user)
+ * 2. Mengelola user: mengubah status (pending ↔ active) dan menghapus
+ * 3. Menampilkan statistik ringkasan (total, active, pending)
+ * 4. Menyediakan fitur pencarian dan filter di tabel user
+ */
 require_once 'db_config.php';
 
+/**
+ * Fungsi Guard halaman admin. 
+ * Akan melakukan redirect ke halaman login jika sesi belum terautentikasi.
+ */
 require_admin();
 
-$flash = get_flash();
+// Mengambil pesan flash (notifikasi keberhasilan/kegagalan aksi)
+$pesan_kilat = get_flash();
 
-// 1. Handle POST Actions
+/**
+ * 1. Penanganan Aksi melalui metode POST (CSRF Protection diaktifkan).
+ */
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     verify_csrf();
     
-    // Update Settings
+    /**
+     * Menangani Pembaruan Informasi Server (Pinned Message).
+     * Data ini akan tampil langsung di halaman utama user.
+     */
     if (isset($_POST['update_settings'])) {
-        $updates = [
+        $data_pembaruan = [
             'public_key' => trim($_POST['public_key'] ?? ''),
             'endpoint' => trim($_POST['endpoint'] ?? ''),
             'allowed_ip' => trim($_POST['allowed_ip'] ?? '')
         ];
 
         try {
-            $stmt = $pdo->prepare("UPDATE settings SET value = ?, updated_at = CURRENT_TIMESTAMP WHERE key = ?");
-            foreach ($updates as $key => $value) {
-                $stmt->execute([$value, $key]);
+            $kueri = $pdo->prepare("UPDATE settings SET value = ?, updated_at = CURRENT_TIMESTAMP WHERE key = ?");
+            foreach ($data_pembaruan as $kunci => $nilai) {
+                $kueri->execute([$nilai, $kunci]);
             }
             set_flash("Informasi server berhasil diperbarui.", "success");
         } catch (PDOException $e) {
@@ -32,23 +50,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     }
 
-    // User Actions (Toggle Status / Delete)
+    /**
+     * Menangani Aksi Pengelolaan User (Ubah Status / Hapus).
+     */
     if (isset($_POST['action']) && isset($_POST['id'])) {
-        $id = (int)$_POST['id'];
-        $action = $_POST['action'];
+        $id_pengguna = (int)$_POST['id'];
+        $aksi = $_POST['action'];
 
         try {
-            if ($action === 'activate') {
-                $stmt = $pdo->prepare("UPDATE users SET status = 'active' WHERE id = ?");
-                $stmt->execute([$id]);
+            if ($aksi === 'activate') {
+                $kueri = $pdo->prepare("UPDATE users SET status = 'active' WHERE id = ?");
+                $kueri->execute([$id_pengguna]);
                 set_flash("User berhasil diaktifkan.", "success");
-            } elseif ($action === 'pending') {
-                $stmt = $pdo->prepare("UPDATE users SET status = 'pending' WHERE id = ?");
-                $stmt->execute([$id]);
+            } elseif ($aksi === 'pending') {
+                $kueri = $pdo->prepare("UPDATE users SET status = 'pending' WHERE id = ?");
+                $kueri->execute([$id_pengguna]);
                 set_flash("User diubah ke status pending.", "warning");
-            } elseif ($action === 'delete') {
-                $stmt = $pdo->prepare("DELETE FROM users WHERE id = ?");
-                $stmt->execute([$id]);
+            } elseif ($aksi === 'delete') {
+                $kueri = $pdo->prepare("DELETE FROM users WHERE id = ?");
+                $kueri->execute([$id_pengguna]);
                 set_flash("User berhasil dihapus.", "info");
             }
         } catch (PDOException $e) {
@@ -60,19 +80,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-// Fetch Data
-$settings = [];
-$stmt = $pdo->query("SELECT * FROM settings");
-while ($row = $stmt->fetch()) {
-    $settings[$row['key']] = $row['value'];
+/**
+ * Mengambil data pengaturan server terkini dari database.
+ */
+$pengaturan = [];
+$kueri = $pdo->query("SELECT * FROM settings");
+while ($baris = $kueri->fetch()) {
+    $pengaturan[$baris['key']] = $baris['value'];
 }
 
-$users = $pdo->query("SELECT * FROM users ORDER BY created_at DESC")->fetchAll();
+/**
+ * Mengambil seluruh daftar pendaftar untuk dikelola oleh admin.
+ */
+$daftar_pengguna = $pdo->query("SELECT * FROM users ORDER BY created_at DESC")->fetchAll();
 
-// Statistics
-$total_users = count($users);
-$active_users = count(array_filter($users, fn($u) => $u['status'] === 'active'));
-$pending_users = count(array_filter($users, fn($u) => $u['status'] === 'pending'));
+/**
+ * Menghitung Statistik Ringkasan.
+ * Dihitung dari array yang sudah di-fetch sebelumnya untuk efisiensi (tanpa query ulang).
+ */
+$total_pengguna = count($daftar_pengguna);
+$pengguna_aktif = count(array_filter($daftar_pengguna, fn($p) => $p['status'] === 'active'));
+$pengguna_menunggu = count(array_filter($daftar_pengguna, fn($p) => $p['status'] === 'pending'));
 ?>
 <!DOCTYPE html>
 <html lang="id" data-theme="light">
@@ -102,37 +130,37 @@ $pending_users = count(array_filter($users, fn($u) => $u['status'] === 'pending'
 </nav>
 
 <div class="container pb-5">
-    <?php if ($flash): ?>
-        <div class="alert alert-<?= h($flash['type']) ?> alert-dismissible fade show" role="alert">
-            <?= h($flash['message']) ?>
+    <?php if ($pesan_kilat): ?>
+        <div class="alert alert-<?= h($pesan_kilat['type']) ?> alert-dismissible fade show" role="alert">
+            <?= h($pesan_kilat['message']) ?>
             <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
         </div>
     <?php endif; ?>
 
-    <!-- Summary Stats -->
+    <!-- Ringkasan Statistik -->
     <div class="row g-3 mb-4">
         <div class="col-md-4">
             <div class="card stat-card p-3">
                 <div class="small text-muted fw-bold">TOTAL USER</div>
-                <div class="h3 mb-0 fw-bold"><?= $total_users ?></div>
+                <div class="h3 mb-0 fw-bold"><?= $total_pengguna ?></div>
             </div>
         </div>
         <div class="col-md-4">
             <div class="card stat-card p-3 border-success">
                 <div class="small text-muted fw-bold text-success">ACTIVE</div>
-                <div class="h3 mb-0 fw-bold"><?= $active_users ?></div>
+                <div class="h3 mb-0 fw-bold"><?= $pengguna_aktif ?></div>
             </div>
         </div>
         <div class="col-md-4">
             <div class="card stat-card p-3 border-warning">
                 <div class="small text-muted fw-bold text-warning">PENDING</div>
-                <div class="h3 mb-0 fw-bold"><?= $pending_users ?></div>
+                <div class="h3 mb-0 fw-bold"><?= $pengguna_menunggu ?></div>
             </div>
         </div>
     </div>
 
     <div class="row g-4">
-        <!-- Update Info Tersemat -->
+        <!-- Form Pembaruan Informasi Server (Pinned Message) -->
         <div class="col-md-4">
             <div class="card">
                 <div class="card-header border-0 pt-4 px-4">
@@ -143,15 +171,15 @@ $pending_users = count(array_filter($users, fn($u) => $u['status'] === 'pending'
                         <?= csrf_field() ?>
                         <div class="mb-3">
                             <label class="form-label small fw-bold">Public Key MikroTik</label>
-                            <input type="text" name="public_key" class="form-control" value="<?= h($settings['public_key'] ?? '') ?>" required>
+                            <input type="text" name="public_key" class="form-control" value="<?= h($pengaturan['public_key'] ?? '') ?>" required>
                         </div>
                         <div class="mb-3">
                             <label class="form-label small fw-bold">Endpoint (IP:Port)</label>
-                            <input type="text" name="endpoint" class="form-control" value="<?= h($settings['endpoint'] ?? '') ?>" required>
+                            <input type="text" name="endpoint" class="form-control" value="<?= h($pengaturan['endpoint'] ?? '') ?>" required>
                         </div>
                         <div class="mb-3">
                             <label class="form-label small fw-bold">Allowed IP</label>
-                            <input type="text" name="allowed_ip" class="form-control" value="<?= h($settings['allowed_ip'] ?? '') ?>" required>
+                            <input type="text" name="allowed_ip" class="form-control" value="<?= h($pengaturan['allowed_ip'] ?? '') ?>" required>
                         </div>
                         <div class="d-grid pt-2">
                             <button type="submit" name="update_settings" class="btn btn-primary fw-bold">Simpan Perubahan</button>
@@ -164,13 +192,14 @@ $pending_users = count(array_filter($users, fn($u) => $u['status'] === 'pending'
             </div>
         </div>
 
-        <!-- User Management -->
+        <!-- Tabel Pengelolaan User -->
         <div class="col-md-8">
             <div class="card h-100">
                 <div class="card-header border-0 pt-4 px-4">
                     <div class="d-flex justify-content-between align-items-center mb-3">
                         <h5 class="fw-bold mb-0">👥 User Management</h5>
                     </div>
+                    <!-- Fitur Pencarian dan Filter Sisi Client -->
                     <div class="row g-2">
                         <div class="col-md-8">
                             <input type="text" id="searchInput" class="form-control form-control-sm" placeholder="Cari nama atau IP...">
@@ -197,35 +226,35 @@ $pending_users = count(array_filter($users, fn($u) => $u['status'] === 'pending'
                                 </tr>
                             </thead>
                             <tbody>
-                                <?php if (empty($users)): ?>
+                                <?php if (empty($daftar_pengguna)): ?>
                                     <tr>
                                         <td colspan="5" class="text-center text-muted py-4">Belum ada pendaftaran.</td>
                                     </tr>
                                 <?php else: ?>
-                                    <?php $i = 1; foreach ($users as $user): ?>
+                                    <?php $nomor = 1; foreach ($daftar_pengguna as $pengguna): ?>
                                         <tr class="user-row">
-                                            <td><?= $i++ ?></td>
+                                            <td><?= $nomor++ ?></td>
                                             <td>
-                                                <div class="fw-bold name-cell"><?= h($user['name']) ?></div>
-                                                <div class="small text-muted ip-cell"><?= h($user['ip_tunnel']) ?></div>
+                                                <div class="fw-bold name-cell"><?= h($pengguna['name']) ?></div>
+                                                <div class="small text-muted ip-cell"><?= h($pengguna['ip_tunnel']) ?></div>
                                             </td>
                                             <td>
                                                 <div class="input-group input-group-sm" style="min-width: 150px;">
-                                                    <input type="text" class="form-control" id="key-<?= $user['id'] ?>" value="<?= h($user['public_key']) ?>" readonly>
-                                                    <button class="btn btn-outline-secondary" onclick="copyToClipboard('key-<?= $user['id'] ?>', this)">Copy</button>
+                                                    <input type="text" class="form-control" id="key-<?= $pengguna['id'] ?>" value="<?= h($pengguna['public_key']) ?>" readonly>
+                                                    <button class="btn btn-outline-secondary" onclick="copyToClipboard('key-<?= $pengguna['id'] ?>', this)">Copy</button>
                                                 </div>
                                             </td>
                                             <td class="status-cell">
-                                                <span class="badge badge-<?= h($user['status']) ?>">
-                                                    <?= ucfirst(h($user['status'])) ?>
+                                                <span class="badge badge-<?= h($pengguna['status']) ?>">
+                                                    <?= ucfirst(h($pengguna['status'])) ?>
                                                 </span>
                                             </td>
                                             <td class="text-end">
                                                 <div class="btn-group btn-group-sm">
                                                     <form method="POST" style="display:inline">
                                                         <?= csrf_field() ?>
-                                                        <input type="hidden" name="id" value="<?= $user['id'] ?>">
-                                                        <?php if ($user['status'] === 'pending'): ?>
+                                                        <input type="hidden" name="id" value="<?= $pengguna['id'] ?>">
+                                                        <?php if ($pengguna['status'] === 'pending'): ?>
                                                             <input type="hidden" name="action" value="activate">
                                                             <button type="submit" class="btn btn-success">Activate</button>
                                                         <?php else: ?>
@@ -233,7 +262,7 @@ $pending_users = count(array_filter($users, fn($u) => $u['status'] === 'pending'
                                                             <button type="submit" class="btn btn-warning">Set Pending</button>
                                                         <?php endif; ?>
                                                     </form>
-                                                    <button type="button" class="btn btn-danger" onclick="confirmDelete(<?= $user['id'] ?>, '<?= h($user['name']) ?>')">Delete</button>
+                                                    <button type="button" class="btn btn-danger" onclick="confirmDelete(<?= $pengguna['id'] ?>, '<?= h($pengguna['name']) ?>')">Delete</button>
                                                 </div>
                                             </td>
                                         </tr>
@@ -248,7 +277,7 @@ $pending_users = count(array_filter($users, fn($u) => $u['status'] === 'pending'
     </div>
 </div>
 
-<!-- Delete Confirmation Modal -->
+<!-- Modal Konfirmasi Hapus (Menggantikan confirm() native demi UX) -->
 <div class="modal fade" id="deleteModal" tabindex="-1">
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
@@ -272,7 +301,7 @@ $pending_users = count(array_filter($users, fn($u) => $u['status'] === 'pending'
     </div>
 </div>
 
-<!-- Toast for clipboard -->
+<!-- Notifikasi Toast (Misal untuk indikasi Copy berhasil) -->
 <div class="toast-container position-fixed bottom-0 end-0 p-3">
     <div id="liveToast" class="toast align-items-center text-white bg-success border-0" role="alert">
         <div class="d-flex">
@@ -284,7 +313,9 @@ $pending_users = count(array_filter($users, fn($u) => $u['status'] === 'pending'
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 <script>
-// Theme Management
+/**
+ * Pengaturan Tema (Terang/Gelap).
+ */
 function toggleTheme() {
     const html = document.documentElement;
     const currentTheme = html.getAttribute('data-theme');
@@ -294,14 +325,18 @@ function toggleTheme() {
 }
 document.documentElement.setAttribute('data-theme', localStorage.getItem('theme') || 'light');
 
-// Delete Confirmation
+/**
+ * Menampilkan modal konfirmasi hapus sebelum mengeksekusi DELETE.
+ */
 function confirmDelete(id, name) {
     document.getElementById('deleteUserId').value = id;
     document.getElementById('deleteUserName').innerText = name;
     new bootstrap.Modal(document.getElementById('deleteModal')).show();
 }
 
-// Clipboard
+/**
+ * Fungsi menyalin teks ke clipboard menggunakan API Clipboard modern.
+ */
 function copyToClipboard(elementId, btn) {
     const copyText = document.getElementById(elementId);
     copyText.select();
@@ -310,7 +345,10 @@ function copyToClipboard(elementId, btn) {
     });
 }
 
-// Search & Filter
+/**
+ * Fitur Pencarian dan Filter Sisi Client.
+ * Dilakukan secara instan tanpa melakukan query tambahan ke server.
+ */
 document.getElementById('searchInput').addEventListener('input', filterTable);
 document.getElementById('statusFilter').addEventListener('change', filterTable);
 
@@ -335,7 +373,9 @@ function filterTable() {
     });
 }
 
-// Auto-dismiss Alerts
+/**
+ * Menghilangkan semua elemen alert secara otomatis setelah 5 detik.
+ */
 document.querySelectorAll('.alert').forEach(alert => {
     setTimeout(() => {
         const bsAlert = new bootstrap.Alert(alert);
