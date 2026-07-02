@@ -16,43 +16,44 @@ if (!is_dir($direktori_db)) {
     mkdir($direktori_db, 0755, true);
 }
 $berkas_db = $direktori_db . '/wireguard_portal.db';
+$db_baru = !file_exists($berkas_db) || filesize($berkas_db) === 0;
 
 try {
     // Membuka koneksi ke database SQLite menggunakan PDO
     $pdo = new PDO("sqlite:" . $berkas_db);
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
     $pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
+    $pdo->exec("PRAGMA busy_timeout = 5000");
 
-    // 1. Membuat tabel settings untuk menyimpan info server MikroTik
-    $pdo->exec("CREATE TABLE IF NOT EXISTS settings (
-        id INTEGER PRIMARY KEY,
-        key TEXT UNIQUE NOT NULL,
-        value TEXT NOT NULL,
-        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )");
+    if ($db_baru) {
+        // 1. Membuat tabel settings untuk menyimpan info server MikroTik
+        $pdo->exec("CREATE TABLE IF NOT EXISTS settings (
+            id INTEGER PRIMARY KEY,
+            key TEXT UNIQUE NOT NULL,
+            value TEXT NOT NULL,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )");
 
-    // 2. Membuat tabel users untuk data pendaftar WireGuard
-    $pdo->exec("CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY,
-        name TEXT NOT NULL,
-        ip_tunnel TEXT NOT NULL,
-        public_key TEXT NOT NULL,
-        status TEXT DEFAULT 'pending',
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )");
+        // 2. Membuat tabel users untuk data pendaftar WireGuard
+        $pdo->exec("CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY,
+            name TEXT NOT NULL,
+            ip_tunnel TEXT NOT NULL,
+            public_key TEXT NOT NULL,
+            status TEXT DEFAULT 'pending',
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )");
 
-    // 3. Membuat tabel admin untuk kredensial login dashboard
-    $pdo->exec("CREATE TABLE IF NOT EXISTS admin (
-        id INTEGER PRIMARY KEY,
-        username TEXT UNIQUE NOT NULL,
-        password TEXT NOT NULL,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )");
+        // 3. Membuat tabel admin untuk kredensial login dashboard
+        $pdo->exec("CREATE TABLE IF NOT EXISTS admin (
+            id INTEGER PRIMARY KEY,
+            username TEXT UNIQUE NOT NULL,
+            password TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )");
 
-    // Mengisi data awal (seed) tabel settings jika masih kosong
-    // Data ini yang akan tampil sebagai "Pinned Message" di halaman user
-    $kueri = $pdo->query("SELECT COUNT(*) FROM settings");
-    if ($kueri->fetchColumn() == 0) {
+        // Mengisi data awal (seed) tabel settings jika masih kosong
+        // Data ini yang akan tampil sebagai "Pinned Message" di halaman user
         $data_awal = [
             ['key' => 'public_key', 'value' => '(belum diisi)'],
             ['key' => 'endpoint', 'value' => '(belum diisi)'],
@@ -62,12 +63,9 @@ try {
         foreach ($data_awal as $baris_awal) {
             $kueri_sisip->execute($baris_awal);
         }
-    }
 
-    // Mengisi akun admin default jika tabel masih kosong
-    // Username: admin | Password: admin123
-    $kueri = $pdo->query("SELECT COUNT(*) FROM admin");
-    if ($kueri->fetchColumn() == 0) {
+        // Mengisi akun admin default jika tabel masih kosong
+        // Username: admin | Password: admin123
         $pengguna_bawaan = 'admin';
         $sandi_bawaan = password_hash('admin123', PASSWORD_DEFAULT);
         $kueri_sisip = $pdo->prepare("INSERT INTO admin (username, password) VALUES (?, ?)");
@@ -153,7 +151,7 @@ function get_flash() {
  */
 function is_admin() {
     start_secure_session();
-    return isset($_SESSION['admin']) && $_SESSION['admin'] === true;
+    return isset($_SESSION['admin']) && $_SESSION['admin'] === true && isset($_SESSION['admin_id']);
 }
 
 function require_admin() {

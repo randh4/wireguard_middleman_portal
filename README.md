@@ -33,7 +33,7 @@ WireGuard Middleman Portal adalah aplikasi web internal sederhana yang dirancang
 4. Buka browser dan akses `http://localhost:8000`.
 
 ### Menggunakan Apache (XAMPP/Laragon)
-1. Pindahkan folder project ke direktori `htdocs` atau `www`.
+1. Pindahkan folder project ke direktori `htdocs` or `www`.
 2. Pastikan ekstensi `pdo_sqlite` sudah aktif di `php.ini`.
 3. Akses folder melalui browser (contoh: `http://localhost/wireguard-portal`).
 

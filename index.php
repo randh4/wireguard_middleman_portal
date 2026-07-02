@@ -14,16 +14,28 @@ require_once 'db_config.php';
 // Mengambil pesan kilat jika ada (misal setelah berhasil daftar)
 $pesan_kilat = get_flash();
 
+$form_lama = [
+    'name' => '',
+    'ip_tunnel' => '',
+    'public_key' => '',
+];
+
 /**
  * Alur penanganan registrasi:
  * Validasi input -> Insert ke DB -> Redirect ke halaman yang sama (PRG pattern)
  */
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['register'])) {
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     verify_csrf();
     
     $nama = trim($_POST['name'] ?? '');
     $ip_terowongan = trim($_POST['ip_tunnel'] ?? '');
-    $kunci_publik = trim($_POST['public_key'] ?? '');
+    $kunci_publik = preg_replace('/\s+/', '', $_POST['public_key'] ?? '');
+
+    $form_lama = [
+        'name' => $nama,
+        'ip_tunnel' => $ip_terowongan,
+        'public_key' => $_POST['public_key'] ?? '',
+    ];
 
     $daftar_error = [];
 
@@ -31,12 +43,44 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['register'])) {
     if (empty($nama) || strlen($nama) < 2) {
         $daftar_error[] = "Nama minimal 2 karakter.";
     }
-    // Regex untuk memastikan format IP/CIDR yang valid
-    if (!preg_match('/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(\/\d{1,2})?$/', $ip_terowongan)) {
+
+    // Validasi IP Tunnel yang lebih ketat (Fase 2 & 3)
+    $parts = explode('/', $ip_terowongan);
+    $ip = $parts[0];
+    $cidr = $parts[1] ?? '32';
+    
+    if (!filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
         $daftar_error[] = "Format IP Tunnel tidak valid (contoh: 10.0.0.2/32).";
+    } elseif ((int)$cidr < 0 || (int)$cidr > 32) {
+        $daftar_error[] = "CIDR prefix harus antara 0-32.";
     }
-    if (strlen($kunci_publik) < 40) {
-        $daftar_error[] = "Public Key terlalu pendek.";
+
+    // Validasi Public Key format Base64 (Fase 2)
+    if (strlen($kunci_publik) !== 44) {
+        $daftar_error[] = "Public Key harus tepat 44 karakter.";
+    } elseif (!preg_match('/^[A-Za-z0-9+\/]{42,43}={1,2}$/', $kunci_publik)) {
+        $daftar_error[] = "Format Public Key tidak valid (harus Base64 44 karakter).";
+    }
+
+    if (empty($daftar_error)) {
+        try {
+            // Cek duplikasi IP Tunnel (Fase 2)
+            $cek_ip = $pdo->prepare("SELECT COUNT(*) FROM users WHERE ip_tunnel = ?");
+            $cek_ip->execute([$ip_terowongan]);
+            if ($cek_ip->fetchColumn() > 0) {
+                $daftar_error[] = "IP Tunnel ini sudah terdaftar oleh user lain.";
+            }
+
+            // Cek duplikasi Public Key (Fase 2)
+            $cek_key = $pdo->prepare("SELECT COUNT(*) FROM users WHERE public_key = ?");
+            $cek_key->execute([$kunci_publik]);
+            if ($cek_key->fetchColumn() > 0) {
+                $daftar_error[] = "Public Key ini sudah terdaftar oleh user lain.";
+            }
+        } catch (PDOException $e) {
+            error_log($e->getMessage());
+            $daftar_error[] = "Gagal memproses validasi database.";
+        }
     }
 
     if (empty($daftar_error)) {
@@ -49,10 +93,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['register'])) {
             exit;
         } catch (PDOException $e) {
             error_log($e->getMessage());
-            set_flash("Gagal mendaftar. Terjadi kesalahan pada sistem.", "danger");
+            $pesan_kilat = [
+                'message' => "Gagal mendaftar. Terjadi kesalahan pada sistem.",
+                'type' => 'danger'
+            ];
         }
     } else {
-        set_flash(implode("<br>", $daftar_error), "warning");
+        $pesan_kilat = [
+            'message' => implode("<br>", $daftar_error),
+            'type' => 'warning'
+        ];
     }
 }
 
@@ -106,8 +156,10 @@ $daftar_pengguna = $pdo->query("SELECT name, status, created_at FROM users ORDER
         <!-- Area Informasi Server (Pinned Message) -->
         <div class="col-md-12">
             <div class="card">
-                <div class="card-header border-0 pt-4 px-4">
+                <div class="card-header border-0 pt-4 px-4 d-flex justify-content-between align-items-center">
                     <h5 class="fw-bold mb-0">📌 Informasi Server MikroTik</h5>
+                    <!-- Tombol Copy Semua Info (Fase 3) -->
+                    <button class="btn btn-sm btn-outline-primary fw-bold" onclick="copyAllServerInfo()">📋 Copy Semua Info</button>
                 </div>
                 <div class="card-body px-4 pb-4">
                     <div class="row row-cols-1 row-cols-md-3 g-3">
@@ -148,15 +200,15 @@ $daftar_pengguna = $pdo->query("SELECT name, status, created_at FROM users ORDER
                         <?= csrf_field() ?>
                         <div class="mb-3">
                             <label class="form-label">Nama Perangkat/User</label>
-                            <input type="text" name="name" class="form-control" placeholder="Contoh: Laptop-Budi" required>
+                            <input type="text" name="name" class="form-control" placeholder="Contoh: Laptop-Budi" value="<?= h($form_lama['name'] ?? '') ?>" required>
                         </div>
                         <div class="mb-3">
                             <label class="form-label">IP Tunnel yang Diinginkan</label>
-                            <input type="text" name="ip_tunnel" class="form-control" placeholder="Contoh: 10.0.0.2/32" required>
+                            <input type="text" name="ip_tunnel" class="form-control" placeholder="Contoh: 10.0.0.2/32" value="<?= h($form_lama['ip_tunnel'] ?? '') ?>" required>
                         </div>
                         <div class="mb-3">
                             <label class="form-label">Public Key Perangkat Anda</label>
-                            <textarea name="public_key" class="form-control" rows="3" placeholder="Paste Public Key Anda di sini..." required></textarea>
+                            <textarea name="public_key" class="form-control" rows="3" placeholder="Contoh: nXpjoWhp3J57jcSeQX/cmozi2AFfmN0mTw6sNCvQCl0=" required><?= h($form_lama['public_key'] ?? '') ?></textarea>
                         </div>
                         <div class="d-grid">
                             <button type="submit" name="register" class="btn btn-primary fw-bold" id="submitBtn">
@@ -187,7 +239,7 @@ $daftar_pengguna = $pdo->query("SELECT name, status, created_at FROM users ORDER
                                     <th>Waktu</th>
                                 </tr>
                             </thead>
-                            <tbody>
+                            <tbody id="queueTableBody">
                                 <?php if (empty($daftar_pengguna)): ?>
                                     <tr>
                                         <td colspan="4" class="text-center text-muted py-4">Belum ada pendaftar.</td>
@@ -304,12 +356,55 @@ function fallbackCopy(text, callback) {
 }
 
 /**
+ * Menyalin semua info server sekaligus.
+ */
+function copyAllServerInfo() {
+    const pubKey = document.getElementById('pubkey').value;
+    const endpoint = document.getElementById('endpoint').value;
+    const allowedIp = document.getElementById('allowedip').value;
+    
+    const textToCopy = `Public Key: ${pubKey}\nEndpoint: ${endpoint}\nAllowed IPs: ${allowedIp}`;
+    
+    const showToast = (msg, success = true) => {
+        const toastEl = document.getElementById('liveToast');
+        document.getElementById('toastMessage').innerText = msg;
+        const toast = new bootstrap.Toast(toastEl);
+        toastEl.classList.remove('bg-success', 'bg-danger', 'text-white');
+        if (success) toastEl.classList.add('bg-success', 'text-white');
+        else toastEl.classList.add('bg-danger', 'text-white');
+        toast.show();
+    };
+
+    if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(textToCopy).then(() => {
+            showToast("Semua informasi server berhasil disalin!");
+        }).catch(err => {
+            fallbackCopy(textToCopy, showToast);
+        });
+    } else {
+        fallbackCopy(textToCopy, showToast);
+    }
+}
+
+/**
  * Mencegah pengiriman formulir ganda (double submit).
- * Menonaktifkan tombol setelah klik pertama dan memberikan indikasi loading.
+ * Menyembunyikan tombol setelah klik pertama dan memberikan indikasi loading.
  */
 document.getElementById('regForm').addEventListener('submit', function(e) {
+    const publicKeyInput = document.querySelector('[name="public_key"]');
+    const publicKey = publicKeyInput.value.replace(/\s+/g, '');
+    
+    // Client-side validation: check basic length
+    if (publicKey.length < 40) {
+        e.preventDefault();
+        alert('Public Key terlalu pendek. Pastikan Anda menyalin Public Key yang lengkap.');
+        return;
+    }
+
     const btn = document.getElementById('submitBtn');
-    btn.disabled = true;
+    setTimeout(() => {
+        btn.disabled = true;
+    }, 0);
     btn.querySelector('.btn-text').innerText = "Memproses...";
     btn.querySelector('.spinner-border').classList.remove('d-none');
 });
@@ -323,6 +418,20 @@ document.querySelectorAll('.alert-success, .alert-info').forEach(alert => {
         bsAlert.close();
     }, 5000);
 });
+
+// Auto-refresh hanya tabel antrean setiap 30 detik
+setInterval(() => {
+    fetch('api_queue.php')
+        .then(response => {
+            if (!response.ok) throw new Error('Network response was not ok');
+            return response.text();
+        })
+        .then(html => {
+            const tableBody = document.getElementById('queueTableBody');
+            if (tableBody) tableBody.innerHTML = html;
+        })
+        .catch(err => console.error('Gagal refresh antrean:', err));
+}, 30000);
 </script>
 </body>
 </html>

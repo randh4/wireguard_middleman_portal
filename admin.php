@@ -221,6 +221,7 @@ $pengguna_menunggu = count(array_filter($daftar_pengguna, fn($p) => $p['status']
                                     <th>No</th>
                                     <th>User / IP</th>
                                     <th>Public Key</th>
+                                    <th>Waktu Daftar</th>
                                     <th>Status</th>
                                     <th class="text-end">Aksi</th>
                                 </tr>
@@ -228,7 +229,7 @@ $pengguna_menunggu = count(array_filter($daftar_pengguna, fn($p) => $p['status']
                             <tbody>
                                 <?php if (empty($daftar_pengguna)): ?>
                                     <tr>
-                                        <td colspan="5" class="text-center text-muted py-4">Belum ada pendaftaran.</td>
+                                        <td colspan="6" class="text-center text-muted py-4">Belum ada pendaftaran.</td>
                                     </tr>
                                 <?php else: ?>
                                     <?php $nomor = 1; foreach ($daftar_pengguna as $pengguna): ?>
@@ -244,6 +245,7 @@ $pengguna_menunggu = count(array_filter($daftar_pengguna, fn($p) => $p['status']
                                                     <button class="btn btn-outline-secondary" onclick="copyToClipboard('key-<?= $pengguna['id'] ?>', this)">Copy</button>
                                                 </div>
                                             </td>
+                                            <td class="small text-muted" style="min-width: 120px;"><?= indonesian_date($pengguna['created_at']) ?></td>
                                             <td class="status-cell">
                                                 <span class="badge badge-<?= h($pengguna['status']) ?>">
                                                     <?= ucfirst(h($pengguna['status'])) ?>
@@ -251,17 +253,20 @@ $pengguna_menunggu = count(array_filter($daftar_pengguna, fn($p) => $p['status']
                                             </td>
                                             <td class="text-end">
                                                 <div class="btn-group btn-group-sm">
-                                                    <form method="POST" style="display:inline">
-                                                        <?= csrf_field() ?>
-                                                        <input type="hidden" name="id" value="<?= $pengguna['id'] ?>">
-                                                        <?php if ($pengguna['status'] === 'pending'): ?>
-                                                            <input type="hidden" name="action" value="activate">
-                                                            <button type="submit" class="btn btn-success">Activate</button>
-                                                        <?php else: ?>
+                                                    <?php if ($pengguna['status'] === 'pending'): ?>
+                                                        <button type="button" class="btn btn-success" onclick="confirmActivate(<?= $pengguna['id'] ?>, '<?= h($pengguna['name']) ?>', '<?= h($pengguna['ip_tunnel']) ?>')">Activate</button>
+                                                    <?php else: ?>
+                                                        <form method="POST" style="display:inline">
+                                                            <?= csrf_field() ?>
+                                                            <input type="hidden" name="id" value="<?= $pengguna['id'] ?>">
                                                             <input type="hidden" name="action" value="pending">
                                                             <button type="submit" class="btn btn-warning">Set Pending</button>
-                                                        <?php endif; ?>
-                                                    </form>
+                                                        </form>
+                                                    <?php endif; ?>
+                                                    
+                                                    <?php if ($pengguna['status'] === 'active'): ?>
+                                                        <button type="button" class="btn btn-info text-white fw-bold" onclick="copyMikrotikCmd('<?= h($pengguna['name']) ?>', '<?= h($pengguna['public_key']) ?>', '<?= h($pengguna['ip_tunnel']) ?>')">📋 Copy MikroTik CMD</button>
+                                                    <?php endif; ?>
                                                     <button type="button" class="btn btn-danger" onclick="confirmDelete(<?= $pengguna['id'] ?>, '<?= h($pengguna['name']) ?>')">Delete</button>
                                                 </div>
                                             </td>
@@ -277,7 +282,7 @@ $pengguna_menunggu = count(array_filter($daftar_pengguna, fn($p) => $p['status']
     </div>
 </div>
 
-<!-- Modal Konfirmasi Hapus (Menggantikan confirm() native demi UX) -->
+<!-- Modal Konfirmasi Hapus -->
 <div class="modal fade" id="deleteModal" tabindex="-1">
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
@@ -301,11 +306,35 @@ $pengguna_menunggu = count(array_filter($daftar_pengguna, fn($p) => $p['status']
     </div>
 </div>
 
-<!-- Notifikasi Toast (Misal untuk indikasi Copy berhasil) -->
+<!-- Modal Konfirmasi Aktivasi (Fase 3) -->
+<div class="modal fade" id="activateModal" tabindex="-1">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title fw-bold">Konfirmasi Aktivasi</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                Apakah Anda yakin ingin mengaktifkan user <strong id="activateUserName"></strong> dengan IP Tunnel <strong id="activateUserIp"></strong>?
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Batal</button>
+                <form method="POST" id="activateForm">
+                    <?= csrf_field() ?>
+                    <input type="hidden" name="id" id="activateUserId">
+                    <input type="hidden" name="action" value="activate">
+                    <button type="submit" class="btn btn-success fw-bold">Ya, Aktifkan</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Notifikasi Toast -->
 <div class="toast-container position-fixed bottom-0 end-0 p-3">
     <div id="liveToast" class="toast align-items-center text-white bg-success border-0" role="alert">
         <div class="d-flex">
-            <div class="toast-body">Berhasil disalin!</div>
+            <div class="toast-body" id="toastBody">Berhasil disalin!</div>
             <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
         </div>
     </div>
@@ -331,7 +360,17 @@ document.documentElement.setAttribute('data-theme', localStorage.getItem('theme'
 function confirmDelete(id, name) {
     document.getElementById('deleteUserId').value = id;
     document.getElementById('deleteUserName').innerText = name;
-    new bootstrap.Modal(document.getElementById('deleteModal')).show();
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('deleteModal')).show();
+}
+
+/**
+ * Menampilkan modal konfirmasi aktivasi sebelum mengeksekusi ACTIVATE (Fase 3).
+ */
+function confirmActivate(id, name, ip) {
+    document.getElementById('activateUserId').value = id;
+    document.getElementById('activateUserName').innerText = name;
+    document.getElementById('activateUserIp').innerText = ip;
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('activateModal')).show();
 }
 
 /**
@@ -341,13 +380,42 @@ function copyToClipboard(elementId, btn) {
     const copyText = document.getElementById(elementId);
     copyText.select();
     navigator.clipboard.writeText(copyText.value).then(() => {
+        document.getElementById('toastBody').innerText = "Berhasil disalin!";
         new bootstrap.Toast(document.getElementById('liveToast')).show();
     });
 }
 
 /**
+ * Fungsi menyalin perintah MikroTik ke clipboard (Fase 3).
+ */
+function copyMikrotikCmd(name, publicKey, ipTunnel) {
+    const cmd = `/interface wireguard peers add interface=wg-tunnel public-key="${publicKey}" allowed-address=${ipTunnel} comment="${name}"`;
+    
+    navigator.clipboard.writeText(cmd).then(() => {
+        document.getElementById('toastBody').innerText = "Perintah MikroTik berhasil disalin!";
+        new bootstrap.Toast(document.getElementById('liveToast')).show();
+    }).catch(err => {
+        // Fallback jika Clipboard API gagal
+        const textArea = document.createElement("textarea");
+        textArea.value = cmd;
+        textArea.style.position = "fixed";
+        textArea.style.left = "-9999px";
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        try {
+            document.execCommand('copy');
+            document.getElementById('toastBody').innerText = "Perintah MikroTik berhasil disalin! (fallback)";
+            new bootstrap.Toast(document.getElementById('liveToast')).show();
+        } catch (e) {
+            alert("Gagal menyalin perintah MikroTik.");
+        }
+        document.body.removeChild(textArea);
+    });
+}
+
+/**
  * Fitur Pencarian dan Filter Sisi Client.
- * Dilakukan secara instan tanpa melakukan query tambahan ke server.
  */
 document.getElementById('searchInput').addEventListener('input', filterTable);
 document.getElementById('statusFilter').addEventListener('change', filterTable);
@@ -376,7 +444,7 @@ function filterTable() {
 /**
  * Menghilangkan semua elemen alert secara otomatis setelah 5 detik.
  */
-document.querySelectorAll('.alert').forEach(alert => {
+document.querySelectorAll('.alert-success, .alert-info').forEach(alert => {
     setTimeout(() => {
         const bsAlert = new bootstrap.Alert(alert);
         bsAlert.close();

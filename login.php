@@ -23,13 +23,25 @@ if (isset($_SESSION['admin']) && $_SESSION['admin'] === true) {
 
 $pesan_error = '';
 
+// Bersihkan attempt yang sudah expired (> 15 menit)
+if (isset($_SESSION['login_attempts'])) {
+    $_SESSION['login_attempts'] = array_filter(
+        $_SESSION['login_attempts'],
+        fn($t) => $t > time() - 900
+    );
+} else {
+    $_SESSION['login_attempts'] = [];
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     verify_csrf();
     
     $nama_pengguna = trim($_POST['username'] ?? '');
     $kata_sandi = $_POST['password'] ?? '';
 
-    if (!empty($nama_pengguna) && !empty($kata_sandi)) {
+    if (count($_SESSION['login_attempts']) >= 5) {
+        $pesan_error = "Terlalu banyak percobaan. Coba lagi dalam 15 menit.";
+    } elseif (!empty($nama_pengguna) && !empty($kata_sandi)) {
         try {
             // Mencari data admin berdasarkan username
             $kueri = $pdo->prepare("SELECT * FROM admin WHERE username = ?");
@@ -37,16 +49,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $data_admin = $kueri->fetch();
 
             /**
-             * Verifikasi password menggunakan hashing standar PHP.
-             * Tidak menggunakan perbandingan string biasa demi keamanan data.
-             */
+              * Verifikasi password menggunakan hashing standar PHP.
+              * Tidak menggunakan perbandingan string biasa demi keamanan data.
+              */
             if ($data_admin && password_verify($kata_sandi, $data_admin['password'])) {
                 // Anti Session Fixation: regenerasi ID session setelah login berhasil
                 session_regenerate_id(true);
                 $_SESSION['admin'] = true;
+                $_SESSION['admin_id'] = $data_admin['id'];
+                $_SESSION['admin_username'] = $data_admin['username'];
+                
+                // Reset counter rate limit
+                $_SESSION['login_attempts'] = [];
+                
                 header("Location: admin.php");
                 exit;
             } else {
+                $_SESSION['login_attempts'][] = time();
                 $pesan_error = "Username atau password salah.";
             }
         } catch (PDOException $e) {
