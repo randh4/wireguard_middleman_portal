@@ -108,6 +108,9 @@ $pengguna_menunggu = count(array_filter($daftar_pengguna, fn($p) => $p['status']
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Admin Dashboard - WireGuard Portal</title>
+    <script>
+        document.documentElement.setAttribute('data-theme', localStorage.getItem('theme') || 'light');
+    </script>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="assets/style.css">
@@ -131,10 +134,11 @@ $pengguna_menunggu = count(array_filter($daftar_pengguna, fn($p) => $p['status']
 
 <div class="container pb-5">
     <?php if ($pesan_kilat): ?>
-        <div class="alert alert-<?= h($pesan_kilat['type']) ?> alert-dismissible fade show" role="alert">
-            <?= h($pesan_kilat['message']) ?>
-            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-        </div>
+        <script>
+            document.addEventListener('DOMContentLoaded', () => {
+                showToast("<?= addslashes($pesan_kilat['message']) ?>", "<?= $pesan_kilat['type'] ?>");
+            });
+        </script>
     <?php endif; ?>
 
     <!-- Ringkasan Statistik -->
@@ -252,22 +256,22 @@ $pengguna_menunggu = count(array_filter($daftar_pengguna, fn($p) => $p['status']
                                                 </span>
                                             </td>
                                             <td class="text-end">
-                                                <div class="btn-group btn-group-sm">
+                                                <div class="d-flex justify-content-end gap-2">
                                                     <?php if ($pengguna['status'] === 'pending'): ?>
-                                                        <button type="button" class="btn btn-success" onclick="confirmActivate(<?= $pengguna['id'] ?>, '<?= h($pengguna['name']) ?>', '<?= h($pengguna['ip_tunnel']) ?>')">Activate</button>
+                                                        <button type="button" class="btn btn-sm btn-success" data-bs-toggle="modal" data-bs-target="#activateModal" data-bs-id="<?= $pengguna['id'] ?>" data-bs-name="<?= h($pengguna['name']) ?>" data-bs-ip="<?= h($pengguna['ip_tunnel']) ?>">Activate</button>
                                                     <?php else: ?>
-                                                        <form method="POST" style="display:inline">
+                                                        <form method="POST" style="display:inline;" class="m-0">
                                                             <?= csrf_field() ?>
                                                             <input type="hidden" name="id" value="<?= $pengguna['id'] ?>">
                                                             <input type="hidden" name="action" value="pending">
-                                                            <button type="submit" class="btn btn-warning">Set Pending</button>
+                                                            <button type="submit" class="btn btn-sm btn-warning">Set Pending</button>
                                                         </form>
                                                     <?php endif; ?>
                                                     
                                                     <?php if ($pengguna['status'] === 'active'): ?>
-                                                        <button type="button" class="btn btn-info text-white fw-bold" onclick="copyMikrotikCmd('<?= h($pengguna['name']) ?>', '<?= h($pengguna['public_key']) ?>', '<?= h($pengguna['ip_tunnel']) ?>')">📋 Copy MikroTik CMD</button>
+                                                        <button type="button" class="btn btn-sm btn-info text-white fw-bold" onclick="copyMikrotikCmd('<?= h($pengguna['name']) ?>', '<?= h($pengguna['public_key']) ?>', '<?= h($pengguna['ip_tunnel']) ?>')">📋 Copy CMD</button>
                                                     <?php endif; ?>
-                                                    <button type="button" class="btn btn-danger" onclick="confirmDelete(<?= $pengguna['id'] ?>, '<?= h($pengguna['name']) ?>')">Delete</button>
+                                                    <button type="button" class="btn btn-sm btn-danger" data-bs-toggle="modal" data-bs-target="#deleteModal" data-bs-id="<?= $pengguna['id'] ?>" data-bs-name="<?= h($pengguna['name']) ?>">Delete</button>
                                                 </div>
                                             </td>
                                         </tr>
@@ -276,6 +280,11 @@ $pengguna_menunggu = count(array_filter($daftar_pengguna, fn($p) => $p['status']
                             </tbody>
                         </table>
                     </div>
+                    <nav aria-label="Page navigation" class="mt-3">
+                        <ul class="pagination pagination-sm justify-content-center m-0" id="adminPagination">
+                            <!-- Populated by JS -->
+                        </ul>
+                    </nav>
                 </div>
             </div>
         </div>
@@ -330,13 +339,14 @@ $pengguna_menunggu = count(array_filter($daftar_pengguna, fn($p) => $p['status']
     </div>
 </div>
 
-<!-- Notifikasi Toast -->
-<div class="toast-container position-fixed bottom-0 end-0 p-3">
-    <div id="liveToast" class="toast align-items-center text-white bg-success border-0" role="alert">
-        <div class="d-flex">
-            <div class="toast-body" id="toastBody">Berhasil disalin!</div>
-            <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+<!-- Wadah untuk Notifikasi Toast -->
+<div class="toast-container position-fixed bottom-0 end-0 p-3" style="z-index: 1055;">
+    <div id="liveToast" class="toast" role="alert" aria-live="assertive" aria-atomic="true">
+        <div class="toast-header">
+            <strong class="me-auto" id="toastTitle">Notifikasi</strong>
+            <button type="button" class="btn-close" data-bs-dismiss="toast" aria-label="Close"></button>
         </div>
+        <div class="toast-body" id="toastMessage"></div>
     </div>
 </div>
 
@@ -352,25 +362,61 @@ function toggleTheme() {
     html.setAttribute('data-theme', newTheme);
     localStorage.setItem('theme', newTheme);
 }
-document.documentElement.setAttribute('data-theme', localStorage.getItem('theme') || 'light');
 
 /**
- * Menampilkan modal konfirmasi hapus sebelum mengeksekusi DELETE.
+ * Helper global untuk menampilkan notifikasi Toast.
  */
-function confirmDelete(id, name) {
-    document.getElementById('deleteUserId').value = id;
-    document.getElementById('deleteUserName').innerText = name;
-    bootstrap.Modal.getOrCreateInstance(document.getElementById('deleteModal')).show();
+function showToast(msg, type = 'success') {
+    const toastEl = document.getElementById('liveToast');
+    const toastMessage = document.getElementById('toastMessage');
+    
+    if (!toastEl || !toastMessage) return;
+    
+    toastMessage.innerHTML = msg;
+    toastEl.className = 'toast';
+    
+    if (type === 'success') {
+        toastEl.classList.add('bg-success', 'text-white');
+    } else if (type === 'danger' || type === 'error') {
+        toastEl.classList.add('bg-danger', 'text-white');
+    } else if (type === 'warning') {
+        toastEl.classList.add('bg-warning', 'text-dark');
+    } else if (type === 'info') {
+        toastEl.classList.add('bg-info', 'text-white');
+    }
+    
+    const toast = new bootstrap.Toast(toastEl, {
+        autohide: (type !== 'danger' && type !== 'warning'),
+        delay: 5000
+    });
+    toast.show();
 }
 
-/**
- * Menampilkan modal konfirmasi aktivasi sebelum mengeksekusi ACTIVATE (Fase 3).
- */
-function confirmActivate(id, name, ip) {
-    document.getElementById('activateUserId').value = id;
-    document.getElementById('activateUserName').innerText = name;
-    document.getElementById('activateUserIp').innerText = ip;
-    bootstrap.Modal.getOrCreateInstance(document.getElementById('activateModal')).show();
+// Event listener untuk pengisian data modal otomatis via Bootstrap events
+const deleteModal = document.getElementById('deleteModal');
+if (deleteModal) {
+    deleteModal.addEventListener('show.bs.modal', function(event) {
+        const button = event.relatedTarget;
+        const id = button.getAttribute('data-bs-id');
+        const name = button.getAttribute('data-bs-name');
+        
+        document.getElementById('deleteUserId').value = id;
+        document.getElementById('deleteUserName').innerText = name;
+    });
+}
+
+const activateModal = document.getElementById('activateModal');
+if (activateModal) {
+    activateModal.addEventListener('show.bs.modal', function(event) {
+        const button = event.relatedTarget;
+        const id = button.getAttribute('data-bs-id');
+        const name = button.getAttribute('data-bs-name');
+        const ip = button.getAttribute('data-bs-ip');
+        
+        document.getElementById('activateUserId').value = id;
+        document.getElementById('activateUserName').innerText = name;
+        document.getElementById('activateUserIp').innerText = ip;
+    });
 }
 
 /**
@@ -380,8 +426,9 @@ function copyToClipboard(elementId, btn) {
     const copyText = document.getElementById(elementId);
     copyText.select();
     navigator.clipboard.writeText(copyText.value).then(() => {
-        document.getElementById('toastBody').innerText = "Berhasil disalin!";
-        new bootstrap.Toast(document.getElementById('liveToast')).show();
+        showToast("Berhasil disalin!");
+    }).catch(() => {
+        showToast("Gagal menyalin.", "danger");
     });
 }
 
@@ -392,8 +439,7 @@ function copyMikrotikCmd(name, publicKey, ipTunnel) {
     const cmd = `/interface wireguard peers add interface=wg-tunnel public-key="${publicKey}" allowed-address=${ipTunnel} comment="${name}"`;
     
     navigator.clipboard.writeText(cmd).then(() => {
-        document.getElementById('toastBody').innerText = "Perintah MikroTik berhasil disalin!";
-        new bootstrap.Toast(document.getElementById('liveToast')).show();
+        showToast("Perintah MikroTik berhasil disalin!");
     }).catch(err => {
         // Fallback jika Clipboard API gagal
         const textArea = document.createElement("textarea");
@@ -405,50 +451,99 @@ function copyMikrotikCmd(name, publicKey, ipTunnel) {
         textArea.select();
         try {
             document.execCommand('copy');
-            document.getElementById('toastBody').innerText = "Perintah MikroTik berhasil disalin! (fallback)";
-            new bootstrap.Toast(document.getElementById('liveToast')).show();
+            showToast("Perintah MikroTik berhasil disalin! (fallback)");
         } catch (e) {
-            alert("Gagal menyalin perintah MikroTik.");
+            showToast("Gagal menyalin perintah MikroTik.", "danger");
         }
         document.body.removeChild(textArea);
     });
 }
 
 /**
- * Fitur Pencarian dan Filter Sisi Client.
+ * Fitur Pencarian, Filter & Pagination Sisi Client.
  */
+const itemsPerPage = 10;
+let currentPage = 1;
+let filteredRows = [];
+
+function initPagination() {
+    const rows = Array.from(document.querySelectorAll('.user-row'));
+    filteredRows = rows;
+    currentPage = 1;
+    showPage(currentPage);
+}
+
+function showPage(page) {
+    currentPage = page;
+    const start = (page - 1) * itemsPerPage;
+    const end = start + itemsPerPage;
+    
+    // Sembunyikan semua row terlebih dahulu
+    const allRows = document.querySelectorAll('.user-row');
+    allRows.forEach(row => row.style.display = 'none');
+    
+    // Tampilkan hanya baris yang sesuai dengan halaman saat ini dari list yang terfilter
+    const pageRows = filteredRows.slice(start, end);
+    pageRows.forEach(row => row.style.display = '');
+    
+    renderPaginationControls();
+}
+
+function renderPaginationControls() {
+    const paginationContainer = document.getElementById('adminPagination');
+    if (!paginationContainer) return;
+    
+    paginationContainer.innerHTML = '';
+    const totalPages = Math.ceil(filteredRows.length / itemsPerPage);
+    if (totalPages <= 1) return;
+    
+    // Tombol Prev
+    const prevLi = document.createElement('li');
+    prevLi.className = `page-item ${currentPage === 1 ? 'disabled' : ''}`;
+    prevLi.innerHTML = `<a class="page-link" href="#" onclick="showPage(${currentPage - 1}); return false;">Prev</a>`;
+    paginationContainer.appendChild(prevLi);
+    
+    // Angka Halaman
+    for (let i = 1; i <= totalPages; i++) {
+        const li = document.createElement('li');
+        li.className = `page-item ${currentPage === i ? 'active' : ''}`;
+        li.innerHTML = `<a class="page-link" href="#" onclick="showPage(${i}); return false;">${i}</a>`;
+        paginationContainer.appendChild(li);
+    }
+    
+    // Tombol Next
+    const nextLi = document.createElement('li');
+    nextLi.className = `page-item ${currentPage === totalPages ? 'disabled' : ''}`;
+    nextLi.innerHTML = `<a class="page-link" href="#" onclick="showPage(${currentPage + 1}); return false;">Next</a>`;
+    paginationContainer.appendChild(nextLi);
+}
+
 document.getElementById('searchInput').addEventListener('input', filterTable);
 document.getElementById('statusFilter').addEventListener('change', filterTable);
 
 function filterTable() {
     const search = document.getElementById('searchInput').value.toLowerCase();
-    const status = document.getElementById('statusFilter').value;
-    const rows = document.querySelectorAll('.user-row');
+    const status = document.getElementById('statusFilter').value.toLowerCase();
+    const rows = Array.from(document.querySelectorAll('.user-row'));
 
-    rows.forEach(row => {
+    filteredRows = rows.filter(row => {
         const name = row.querySelector('.name-cell').innerText.toLowerCase();
         const ip = row.querySelector('.ip-cell').innerText.toLowerCase();
-        const rowStatus = row.querySelector('.status-cell').innerText;
+        const rowStatus = row.querySelector('.status-cell').innerText.trim().toLowerCase();
         
         const matchesSearch = name.includes(search) || ip.includes(search);
         const matchesStatus = status === "" || rowStatus === status;
 
-        if (matchesSearch && matchesStatus) {
-            row.style.display = "";
-        } else {
-            row.style.display = "none";
-        }
+        return matchesSearch && matchesStatus;
     });
+
+    currentPage = 1;
+    showPage(currentPage);
 }
 
-/**
- * Menghilangkan semua elemen alert secara otomatis setelah 5 detik.
- */
-document.querySelectorAll('.alert-success, .alert-info').forEach(alert => {
-    setTimeout(() => {
-        const bsAlert = new bootstrap.Alert(alert);
-        bsAlert.close();
-    }, 5000);
+// Inisialisasi pagination saat load
+document.addEventListener('DOMContentLoaded', () => {
+    initPagination();
 });
 </script>
 </body>

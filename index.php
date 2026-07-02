@@ -117,10 +117,19 @@ while ($baris = $kueri->fetch()) {
 }
 
 /**
- * Mengambil daftar pendaftar terbaru untuk ditampilkan di antrean publik.
- * Hanya menampilkan nama, status, dan waktu untuk menjaga privasi data sensitif.
+ * Mengambil daftar pendaftar terbaru untuk ditampilkan di antrean publik dengan pagination.
  */
-$daftar_pengguna = $pdo->query("SELECT name, status, created_at FROM users ORDER BY created_at DESC LIMIT 20")->fetchAll();
+$limit = 10;
+$total_users = $pdo->query("SELECT COUNT(*) FROM users")->fetchColumn();
+$total_pages = ceil($total_users / $limit);
+$page = isset($_GET['page']) ? max(1, (int)$_GET['page']) : 1;
+$offset = ($page - 1) * $limit;
+
+$daftar_pengguna = $pdo->prepare("SELECT name, status, created_at FROM users ORDER BY created_at DESC LIMIT ? OFFSET ?");
+$daftar_pengguna->bindValue(1, $limit, PDO::PARAM_INT);
+$daftar_pengguna->bindValue(2, $offset, PDO::PARAM_INT);
+$daftar_pengguna->execute();
+$daftar_pengguna = $daftar_pengguna->fetchAll();
 ?>
 <!DOCTYPE html>
 <html lang="id" data-theme="light">
@@ -128,6 +137,9 @@ $daftar_pengguna = $pdo->query("SELECT name, status, created_at FROM users ORDER
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>WireGuard Middleman Portal</title>
+    <script>
+        document.documentElement.setAttribute('data-theme', localStorage.getItem('theme') || 'light');
+    </script>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="assets/style.css">
@@ -146,10 +158,11 @@ $daftar_pengguna = $pdo->query("SELECT name, status, created_at FROM users ORDER
 
 <div class="container pb-5">
     <?php if ($pesan_kilat): ?>
-        <div class="alert alert-<?= h($pesan_kilat['type']) ?> alert-dismissible fade show" role="alert">
-            <?= $pesan_kilat['message'] ?>
-            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-        </div>
+        <script>
+            document.addEventListener('DOMContentLoaded', () => {
+                showToast("<?= addslashes($pesan_kilat['message']) ?>", "<?= $pesan_kilat['type'] ?>");
+            });
+        </script>
     <?php endif; ?>
 
     <div class="row g-4">
@@ -200,15 +213,18 @@ $daftar_pengguna = $pdo->query("SELECT name, status, created_at FROM users ORDER
                         <?= csrf_field() ?>
                         <div class="mb-3">
                             <label class="form-label">Nama Perangkat/User</label>
-                            <input type="text" name="name" class="form-control" placeholder="Contoh: Laptop-Budi" value="<?= h($form_lama['name'] ?? '') ?>" required>
+                            <input type="text" name="name" id="regName" class="form-control" placeholder="Contoh: Laptop-Budi" value="<?= h($form_lama['name'] ?? '') ?>" required>
+                            <div class="invalid-feedback">Nama minimal 2 karakter.</div>
                         </div>
                         <div class="mb-3">
                             <label class="form-label">IP Tunnel yang Diinginkan</label>
-                            <input type="text" name="ip_tunnel" class="form-control" placeholder="Contoh: 10.0.0.2/32" value="<?= h($form_lama['ip_tunnel'] ?? '') ?>" required>
+                            <input type="text" name="ip_tunnel" id="regIp" class="form-control" placeholder="Contoh: 10.0.0.2/32" value="<?= h($form_lama['ip_tunnel'] ?? '') ?>" required>
+                            <div class="invalid-feedback">Format IP Tunnel tidak valid (contoh: 10.0.0.2/32).</div>
                         </div>
                         <div class="mb-3">
                             <label class="form-label">Public Key Perangkat Anda</label>
-                            <textarea name="public_key" class="form-control" rows="3" placeholder="Contoh: nXpjoWhp3J57jcSeQX/cmozi2AFfmN0mTw6sNCvQCl0=" required><?= h($form_lama['public_key'] ?? '') ?></textarea>
+                            <textarea name="public_key" id="regPubKey" class="form-control" rows="3" placeholder="Contoh: nXpjoWhp3J57jcSeQX/cmozi2AFfmN0mTw6sNCvQCl0=" required><?= h($form_lama['public_key'] ?? '') ?></textarea>
+                            <div class="invalid-feedback">Format Public Key tidak valid (harus Base64 44 karakter).</div>
                         </div>
                         <div class="d-grid">
                             <button type="submit" name="register" class="btn btn-primary fw-bold" id="submitBtn">
@@ -245,7 +261,7 @@ $daftar_pengguna = $pdo->query("SELECT name, status, created_at FROM users ORDER
                                         <td colspan="4" class="text-center text-muted py-4">Belum ada pendaftar.</td>
                                     </tr>
                                 <?php else: ?>
-                                    <?php $nomor = 1; foreach ($daftar_pengguna as $pengguna): ?>
+                                    <?php $nomor = $offset + 1; foreach ($daftar_pengguna as $pengguna): ?>
                                         <tr>
                                             <td><?= $nomor++ ?></td>
                                             <td class="fw-semibold"><?= h($pengguna['name']) ?></td>
@@ -261,6 +277,23 @@ $daftar_pengguna = $pdo->query("SELECT name, status, created_at FROM users ORDER
                             </tbody>
                         </table>
                     </div>
+                    <?php if ($total_pages > 1): ?>
+                        <nav aria-label="Page navigation" class="mt-3">
+                            <ul class="pagination pagination-sm justify-content-center m-0">
+                                <li class="page-item <?= $page === 1 ? 'disabled' : '' ?>">
+                                    <a class="page-link" href="?page=<?= $page - 1 ?>">Prev</a>
+                                </li>
+                                <?php for ($i = 1; $i <= $total_pages; $i++): ?>
+                                    <li class="page-item <?= $page === $i ? 'active' : '' ?>">
+                                        <a class="page-link" href="?page=<?= $i ?>"><?= $i ?></a>
+                                    </li>
+                                <?php endfor; ?>
+                                <li class="page-item <?= $page === $total_pages ? 'disabled' : '' ?>">
+                                    <a class="page-link" href="?page=<?= $page + 1 ?>">Next</a>
+                                </li>
+                            </ul>
+                        </nav>
+                    <?php endif; ?>
                 </div>
             </div>
         </div>
@@ -298,30 +331,43 @@ function toggleTheme() {
     localStorage.setItem('theme', newTheme);
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-    const savedTheme = localStorage.getItem('theme') || 'light';
-    document.documentElement.setAttribute('data-theme', savedTheme);
-});
+/**
+ * Helper global untuk menampilkan notifikasi Toast.
+ */
+function showToast(msg, type = 'success') {
+    const toastEl = document.getElementById('liveToast');
+    const toastMessage = document.getElementById('toastMessage');
+    const toastHeader = toastEl.querySelector('.toast-header');
+    
+    if (!toastEl || !toastMessage) return;
+    
+    toastMessage.innerHTML = msg;
+    toastEl.className = 'toast';
+    
+    if (type === 'success') {
+        toastEl.classList.add('bg-success', 'text-white');
+    } else if (type === 'danger' || type === 'error') {
+        toastEl.classList.add('bg-danger', 'text-white');
+    } else if (type === 'warning') {
+        toastEl.classList.add('bg-warning', 'text-dark');
+    } else if (type === 'info') {
+        toastEl.classList.add('bg-info', 'text-white');
+    }
+    
+    const toast = new bootstrap.Toast(toastEl, {
+        autohide: (type !== 'danger' && type !== 'warning'),
+        delay: 5000
+    });
+    toast.show();
+}
 
 /**
  * Fungsi Copy to Clipboard dengan Mekanisme Fallback.
- * navigator.clipboard membutuhkan koneksi aman (HTTPS). 
- * Di lingkungan internal HTTP, fungsi ini akan beralih ke metode textarea manual.
  */
 function copyToClipboard(elementId, btn) {
     const copyText = document.getElementById(elementId);
     const textToCopy = copyText.value;
     
-    const showToast = (msg, success = true) => {
-        const toastEl = document.getElementById('liveToast');
-        document.getElementById('toastMessage').innerText = msg;
-        const toast = new bootstrap.Toast(toastEl);
-        toastEl.classList.remove('bg-success', 'bg-danger', 'text-white');
-        if (success) toastEl.classList.add('bg-success', 'text-white');
-        else toastEl.classList.add('bg-danger', 'text-white');
-        toast.show();
-    };
-
     if (navigator.clipboard && window.isSecureContext) {
         navigator.clipboard.writeText(textToCopy).then(() => {
             showToast("Berhasil disalin ke clipboard!");
@@ -348,9 +394,9 @@ function fallbackCopy(text, callback) {
     try {
         const successful = document.execCommand('copy');
         if (successful) callback("Berhasil disalin! (fallback)");
-        else callback("Gagal menyalin.", false);
+        else callback("Gagal menyalin.", 'danger');
     } catch (err) {
-        callback("Error saat menyalin.", false);
+        callback("Error saat menyalin.", 'danger');
     }
     document.body.removeChild(textArea);
 }
@@ -365,16 +411,6 @@ function copyAllServerInfo() {
     
     const textToCopy = `Public Key: ${pubKey}\nEndpoint: ${endpoint}\nAllowed IPs: ${allowedIp}`;
     
-    const showToast = (msg, success = true) => {
-        const toastEl = document.getElementById('liveToast');
-        document.getElementById('toastMessage').innerText = msg;
-        const toast = new bootstrap.Toast(toastEl);
-        toastEl.classList.remove('bg-success', 'bg-danger', 'text-white');
-        if (success) toastEl.classList.add('bg-success', 'text-white');
-        else toastEl.classList.add('bg-danger', 'text-white');
-        toast.show();
-    };
-
     if (navigator.clipboard && window.isSecureContext) {
         navigator.clipboard.writeText(textToCopy).then(() => {
             showToast("Semua informasi server berhasil disalin!");
@@ -387,17 +423,75 @@ function copyAllServerInfo() {
 }
 
 /**
+ * Validasi Input Client-Side & Inline Feedback
+ */
+const regName = document.getElementById('regName');
+const regIp = document.getElementById('regIp');
+const regPubKey = document.getElementById('regPubKey');
+
+function validateName() {
+    if (regName.value.trim().length >= 2) {
+        regName.classList.remove('is-invalid');
+        regName.classList.add('is-valid');
+        return true;
+    } else {
+        regName.classList.remove('is-valid');
+        regName.classList.add('is-invalid');
+        return false;
+    }
+}
+
+function validateIp() {
+    const value = regIp.value.trim();
+    const parts = value.split('/');
+    const ip = parts[0];
+    const cidr = parts[1];
+    
+    const ipPattern = /^(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/;
+    const isValidIp = ipPattern.test(ip);
+    const isValidCidr = cidr !== undefined && !isNaN(cidr) && parseInt(cidr) >= 0 && parseInt(cidr) <= 32;
+    
+    if (isValidIp && isValidCidr) {
+        regIp.classList.remove('is-invalid');
+        regIp.classList.add('is-valid');
+        return true;
+    } else {
+        regIp.classList.remove('is-valid');
+        regIp.classList.add('is-invalid');
+        return false;
+    }
+}
+
+function validatePubKey() {
+    const value = regPubKey.value.replace(/\s+/g, '');
+    const pubKeyPattern = /^[A-Za-z0-9+\/]{42,43}={1,2}$/;
+    
+    if (value.length === 44 && pubKeyPattern.test(value)) {
+        regPubKey.classList.remove('is-invalid');
+        regPubKey.classList.add('is-valid');
+        return true;
+    } else {
+        regPubKey.classList.remove('is-valid');
+        regPubKey.classList.add('is-invalid');
+        return false;
+    }
+}
+
+if (regName) regName.addEventListener('input', validateName);
+if (regIp) regIp.addEventListener('input', validateIp);
+if (regPubKey) regPubKey.addEventListener('input', validatePubKey);
+
+/**
  * Mencegah pengiriman formulir ganda (double submit).
- * Menyembunyikan tombol setelah klik pertama dan memberikan indikasi loading.
  */
 document.getElementById('regForm').addEventListener('submit', function(e) {
-    const publicKeyInput = document.querySelector('[name="public_key"]');
-    const publicKey = publicKeyInput.value.replace(/\s+/g, '');
+    const isNameValid = validateName();
+    const isIpValid = validateIp();
+    const isPubKeyValid = validatePubKey();
     
-    // Client-side validation: check basic length
-    if (publicKey.length < 40) {
+    if (!isNameValid || !isIpValid || !isPubKeyValid) {
         e.preventDefault();
-        alert('Public Key terlalu pendek. Pastikan Anda menyalin Public Key yang lengkap.');
+        showToast('Pastikan semua input sudah valid sebelum mengirim.', 'warning');
         return;
     }
 
@@ -407,16 +501,6 @@ document.getElementById('regForm').addEventListener('submit', function(e) {
     }, 0);
     btn.querySelector('.btn-text').innerText = "Memproses...";
     btn.querySelector('.spinner-border').classList.remove('d-none');
-});
-
-/**
- * Menghilangkan pesan sukses/info secara otomatis setelah 5 detik.
- */
-document.querySelectorAll('.alert-success, .alert-info').forEach(alert => {
-    setTimeout(() => {
-        const bsAlert = new bootstrap.Alert(alert);
-        bsAlert.close();
-    }, 5000);
 });
 
 // Auto-refresh hanya tabel antrean setiap 30 detik
