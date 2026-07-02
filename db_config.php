@@ -9,6 +9,8 @@
  * 4. Menyediakan fungsi-fungsi helper: keamanan, session, CSRF, flash message
  */
 
+date_default_timezone_set('Asia/Jakarta');
+
 // Menentukan direktori database. 
 // Disimpan di subfolder agar bisa dilindungi dengan .htaccess dari akses langsung browser.
 $direktori_db = __DIR__ . '/data';
