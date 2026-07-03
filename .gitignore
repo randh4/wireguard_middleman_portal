@@ -18,3 +18,5 @@ Thumbs.db
 #prompt
 PROMPT.md
 project-planning.md
+
+.gitignore
